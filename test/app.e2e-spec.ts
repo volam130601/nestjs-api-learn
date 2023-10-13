@@ -1,24 +1,173 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { INestApplication } from '@nestjs/common';
-import * as request from 'supertest';
-import { AppModule } from './../src/app.module';
+//make a database for testing!
+//Every time we run tests, clean up data
+//We must call request like we do with Postman
+/**
+ * How to open prisma studio on "TEST" database?
+ * npx dotenv -e .env.test -- prisma studio
+ * How to open prisma studio on "DEV" database?
+ * npx dotenv -e .env -- prisma studio
+ */
+import { Test } from '@nestjs/testing'
+import { AppModule } from '../src/app.module'
+import { INestApplication, ValidationPipe } from '@nestjs/common'
+import { PrismaService } from '../src/prisma/prisma.service'
+import * as pactum from 'pactum'
 
-describe('AppController (e2e)', () => {
-  let app: INestApplication;
+const PORT = 3002
+describe('App EndToEnd tests', () => {
+  let app: INestApplication
+  let prismaService: PrismaService
+  beforeAll(async () => {
+    const appModule = await Test.createTestingModule({
+      imports: [AppModule]
+    }).compile()
+    app = appModule.createNestApplication()
+    app.useGlobalPipes(new ValidationPipe())
+    await app.init()
+    await app.listen(PORT)
+    prismaService = app.get(PrismaService)
+    await prismaService.cleanDatabase()
+    pactum.request.setBaseUrl(`http://localhost:${PORT}`)
+  })
 
-  beforeEach(async () => {
-    const moduleFixture: TestingModule = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
+  describe('Test Authentication', () => {
+    describe('Register', () => {
+      it('should show error with empty email', () => {
+        return pactum.spec()
+          .post(`/auth/register`)
+          .withBody({
+            email: '',
+            password: 'bc123123'
+          })
+          .expectStatus(400)
+        // .inspect()
+      })
+      it('should show error with invalid email format', () => {
+        return pactum.spec()
+          .post(`/auth/register`)
+          .withBody({
+            email: 'lamlbx123@gmail',
+            password: 'bc123123'
+          })
+          .expectStatus(400)
+        // .inspect()
+      })
+      it('should show error If password is empty', () => {
+        return pactum.spec()
+          .post(`/auth/register`)
+          .withBody({
+            email: 'lamlbx123@gmail',
+            password: ''
+          })
+          .expectStatus(400)
+        // .inspect()
+      })
+      //many other cases...
+      it('should Register', () => {
+        return pactum.spec()
+          .post(`/auth/register`)
+          .withBody({
+            email: 'testemail123@gmail.com',
+            password: 'bc123123'
+          })
+          .expectStatus(201)
+        // .inspect()
+      })
+    })
+    describe('Login', () => {
+      it('should Login', () => {
+        return pactum.spec()
+          .post(`/auth/login`)
+          .withBody({
+            email: 'testemail123@gmail.com',
+            password: 'bc123123'
+          })
+          .expectStatus(201)
+          // .inspect()
+          .stores('accessToken', "accessToken")
+      })
+    })
+    describe('User', () => {
+      describe('Get Detail User', () => {
+        it('should get detail user ', () => {
+          return pactum.spec()
+            .get('/users/me')
+            .withHeaders({
+              Authorization: 'Bearer $S{accessToken}'
+            })
+            .expectStatus(200)
+            .inspect()
+        })
+      })
+    })
+  })
 
-    app = moduleFixture.createNestApplication();
-    await app.init();
-  });
+  //test note here  
+  describe('Note', () => {
+    describe('Insert Note', () => {
+      it('insert first note', () => {
+        return pactum.spec()
+          .post('/notes')
+          .withHeaders({
+            Authorization: 'Bearer $S{accessToken}',
+          })
+          .withBody({
+            title: 'This is title 11',
+            description: 'descriptionnnn 11',
+            url: 'www.yahoo.com'
+          })
+          .expectStatus(201)
+          .stores('nodeId01', 'id')
+          .inspect()
+      })
+      it('insert second note', () => {
+        return pactum.spec()
+          .post('/notes')
+          .withHeaders({
+            Authorization: 'Bearer $S{accessToken}',
+          })
+          .withBody({
+            title: 'This is title 222',
+            description: 'descriptionnnn 222',
+            url: 'www.twitter.com'
+          })
+          .expectStatus(201)
+          .stores('nodeId02', 'id')
+          .inspect()
+      })
+      it('get Note by id}', () => {
+        return pactum.spec()
+          .get('/notes')
+          .withHeaders({
+            Authorization: 'Bearer $S{accessToken}',
+          })
+          .withPathParams('id', '${nodeId01}')
+          .expectStatus(200)
+      })
+      it('get All Notes', () => {
+        return pactum.spec()
+          .get('/notes')
+          .withHeaders({
+            Authorization: 'Bearer $S{accessToken}',
+          })
+          .inspect()
+          .expectStatus(200)
+      })
+      it('delete note by ID', () => {
+        return pactum.spec()
+          .delete('/notes')
+          .withHeaders({
+            Authorization: 'Bearer $S{accessToken}',
+          })
+          .withQueryParams('id', '$S{nodeId02}')
+          .inspect()
+          .expectStatus(204)
+      })
+    })
 
-  it('/ (GET)', () => {
-    return request(app.getHttpServer())
-      .get('/')
-      .expect(200)
-      .expect('Hello World!');
-  });
-});
+  })
+
+  afterAll(async () => {
+    app.close()
+  })
+})

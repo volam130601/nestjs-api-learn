@@ -35,6 +35,9 @@ $ yarn install
 ## Running the app
 
 ```bash
+# run db docker and connect to the database with prisma
+$ yarn db:dev:restart
+
 # development
 $ yarn run start
 
